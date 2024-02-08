@@ -1,25 +1,58 @@
-# VariantFiltering_RNASeq_BankVoles
-Variant calling and filtering analysis for RNA-seq data of Bank Voles. This pipeline is a part of the Allele Specific Expression pipeline. | LU Master’s Thesis in Bioinformatics 2023 | BINP51
+# READ ME: Allele-Specific Expression in Bank Voles
 
-# Project Description
 
-- what pipeline/ project does
-- Technologies Used
-- Challenges faces and featured you want to implement in future
+### Variant calling and filtering analysis for RNA-seq data of Bank Voles. This pipeline is a part of the Allele Specific Expression pipeline. | LU Master’s Thesis in Bioinformatics 2023 | BINP51
 
-Table of contents
-
-Installation and Running the project
-
-How to use the Project
-
-Credits
-
-Badges
-
-Include Tests
+---
 
 # Uppmax Set-up
+
+What all Simple Linux Utility for Resource Management (SLURM) does?
+- job submission using sbatch command
+- resource allocation
+- job scheduling
+- job monitoring
+
+### Basic SLURM Commands
+
+sbatch : run a bash script
+
+```bash
+sbatch my_job_script_file.sh
+```
+
+interactive : run an interactive session
+
+```bash
+interactive -A <project_name> -t DD-hh:mm:ss
+```
+
+jobinfo : to get status and other information about job
+
+```bash
+jobinfo -u <user_name>
+#OR
+jobinfo -A account
+```
+
+scancel : to cancel a job
+
+```bash
+scancel -n <job_name>
+```
+
+### Script Components
+
+#!/bin/bash -l : shebang to make file executable
+#SBATCH -A snic2022-5-71 : project name
+#SBATCH -p node : nodes
+#SBATCH -n 20 : number of nodes
+#SBATCH -t 2-00:00:00 : time for the run
+#SBATCH -J hifiasm_wikstroemia_hmc20s55.job : job name; it will help to search the project status
+#SBATCH -o hifiasm_wikstroemia_hmc20s55.out : output file name
+#SBATCH -e hifiasm_wikstroemia_hmc20s55.err : : error file name
+#SBATCH [--mail-user=ayushipathakofficial@gmail.com](mailto:--mail-user=ayushipathakofficial@gmail.com) email for the job updates like queued, running, ending and cancelled
+#SBATCH --mail-type=ALL:  what kind of mailing list you prefer
 
 ## Sequencing stats
 
@@ -96,7 +129,9 @@ done
 ## Post-trimming quality check
 
 ```bash
-
+cd 2_trimmed_reads/
+fastqc *.fastq
+multiqc *
 ```
 
 # Alignment
@@ -542,9 +577,6 @@ var_hwe<- ggplot(VCF_StatAnalysis_hwe,aes(P_HWE)) +geom_density(fill = "#29ADB2"
 head(VCF_StatAnalysis_hwe)
 summary(VCF_StatAnalysis_hwe$P_HWE)
 
-#hwe_100<-var_hwe +  xlim(0,0.00001) # to look in the amount of variants we will filter
-#hwe_100
-
 ## Individual based statistics
 
 # Mean depth per individual
@@ -903,6 +935,93 @@ bcftools merge \
 	P6207_135.rawVariants.vcf.gz \
 	P6207_136.rawVariants.vcf.gz \
 	-o $dir/mergedVCF_bcftools.vcf
+```
+
+GATK does not work well for tools outside its environment. So use DBImport.
+
+Prepare the interval list
+
+```bash
+cd /proj/uppstore2017199/b2016119_nobackup/ayushi/9.2_GATK_variant_calling/calledVariants
+module load bioinfo-tools
+module load bcftools/1.9
+# extracting chr list from all the vcf files
+files=$(ls *.vcf.gz); for file in $files; do ls $file | bcftools query -H -f "%CHROM\n" $file ; done > gatk.chr.txt
+# files=$(ls *.vcf.gz); for file in $files; do ls $file; bcftools view -H $file | bcftools query -f '%CHROM\n' | sort | uniq > $file.txt ; done
+# combining the list, sorting and uniq
+#cat *.uniq > gatk.chr.txt
+
+#sorting and uniq
+cat gatk.chr.txt | sort | uniq -c > gatk.chr.txt.stats
+cat gatk.chr.txt | sort | uniq > gatk.chr.txt.sorted.uniq
+```
+
+Combined the **Joint Genotyping** step in this script as it needs same temporary directory.
+
+```bash
+#!/bin/bash -l
+#SBATCH -A naiss2023-22-97
+#SBATCH -p core
+#SBATCH -n 8
+#SBATCH -t 00-10:00:00
+#SBATCH -J 9.2.4_mergingFiles_DBImport.job
+#SBATCH -o 9.2.4_mergingFiles_DBImport.out
+#SBATCH -e 9.2.4_mergingFiles_DBImport.err
+#SBATCH --mail-user=ayushipathakofficial@gmail.com
+#SBATCH --mail-type=ALL
+
+#load the modules
+module load bioinfo-tools
+module load  GATK/4.3.0.0
+
+#Provide the directory of the input and output files
+in_dir='/proj/uppstore2017199/b2016119_nobackup/ayushi/9.2_GATK_variant_calling/calledVariants'
+out_dir='/proj/uppstore2017199/b2016119_nobackup/ayushi/9.2_GATK_variant_calling'
+res='/proj/uppstore2017199/b2016119_nobackup/ayushi/resources'
+
+#Copy input files to the working directory
+cd $in_dir
+cp *.rawVariants.vcf.gz $SNIC_TMP
+cp *.rawVariants.vcf.idx $SNIC_TMP
+cp *.rawVariants.vcf.gz.tbi $SNIC_TMP
+cd $res
+cp GCF_902806735.1_Bank_vole1_10x_genomic.fna $SNIC_TMP
+cp GCF_902806735.1_Bank_vole1_10x_genomic.fna.fai $SNIC_TMP
+cp GCF_902806735.1_Bank_vole1_10x_genomic.dict $SNIC_TMP
+
+cd $SNIC_TMP
+
+gatk GenomicsDBImport \
+                        -V P6207_101.rawVariants.vcf.gz \
+                        -V P6207_104.rawVariants.vcf.gz \
+                        -V P6207_105.rawVariants.vcf.gz \
+                        -V P6207_109.rawVariants.vcf.gz \
+                        -V P6207_112.rawVariants.vcf.gz \
+                        -V P6207_113.rawVariants.vcf.gz \
+                        -V P6207_116.rawVariants.vcf.gz \
+                        -V P6207_117.rawVariants.vcf.gz \
+                        -V P6207_120.rawVariants.vcf.gz \
+                        -V P6207_121.rawVariants.vcf.gz \
+                        -V P6207_123.rawVariants.vcf.gz \
+                        -V P6207_125.rawVariants.vcf.gz \
+                        -V P6207_128.rawVariants.vcf.gz \
+                        -V P6207_129.rawVariants.vcf.gz \
+                        -V P6207_132.rawVariants.vcf.gz \
+                        -V P6207_134.rawVariants.vcf.gz \
+                        -V P6207_135.rawVariants.vcf.gz \
+                        -V P6207_136.rawVariants.vcf.gz \
+                        --genomicsdb-workspace-path /proj/uppstore2017199/b2016119_nobackup/ayushi/9.2_GATK_variant_calling/DBImport/my_database \
+      --tmp-dir $SNIC_TMP \
+                        --merge-input-intervals \
+      -L NC_024538.1 -L NW_025965004.1 -L NW_025965005.1 -L NW_025965006.1 -L NW_025965007.1 -L NW_025965008.1 -L NW_025965009.1 -L NW_025965010.1 -L NW_025965011.1 -L NW_025965012.1 -L NW_025965013.1 -L NW_025965014.1 -L NW_025965015.1 -L NW_025965016.1 -L NW_025965017.1 -L NW_025965018.1 -L NW_025965019.1 -L NW_025965020.1 -L NW_025965021.1 -L NW_025965022.1 -L NW_025965023.1 -L NW_025965024.1 -L NW_025965025.1 -L NW_025965026.1 -L NW_025965027.1 -L NW_025965028.1 -L NW_025965029.1 -L NW_025965030.1 -L NW_025965031.1 -L NW_025965032.1 -L NW_025965033.1 -L NW_025965034.1 -L NW_025965035.1 -L NW_025965036.1 -L NW_025965037.1 -L NW_025965038.1 -L NW_025965039.1 -L NW_025965040.1 -L NW_025965041.1 -L NW_025965042.1 -L NW_025965043.1 -L NW_025965044.1 -L NW_025965045.1 -L NW_025965046.1 -L NW_025965047.1 -L NW_025965048.1 -L NW_025965049.1 -L NW_025965050.1 -L NW_025965051.1 -L NW_025965052.1 -L NW_025965053.1 -L NW_025965054.1 -L NW_025965055.1 -L NW_025965056.1 -L NW_025965057.1 -L NW_025965058.1 -L NW_025965059.1 -L NW_025965060.1 -L NW_025965061.1 -L NW_025965062.1 -L NW_025965063.1 -L NW_025965064.1 -L NW_025965065.1 -L NW_025965066.1 -L NW_025965067.1 -L NW_025965068.1 -L NW_025965069.1 -L NW_025965070.1 -L NW_025965071.1 -L NW_025965072.1 -L NW_025965073.1 -L NW_025965074.1 -L NW_025965075.1 -L NW_025965076.1 -L NW_025965077.1 -L NW_025965078.1 -L NW_025965079.1 -L NW_025965080.1 -L NW_025965081.1 -L NW_025965082.1 -L NW_025965083.1 -L NW_025965084.1 -L NW_025965085.1 -L NW_025965086.1 -L NW_025965087.1 -L NW_025965088.1 -L NW_025965089.1 -L NW_025965090.1 -L NW_025965091.1 -L NW_025965092.1 -L NW_025965093.1 -L NW_025965094.1 -L NW_025965095.1 -L NW_025965096.1 -L NW_025965097.1 -L NW_025965098.1 -L NW_025965099.1 -L NW_025965100.1 -L NW_025965101.1 -L NW_025965102.1 -L NW_025965103.1 -L NW_025965104.1 -L NW_025965105.1 -L NW_025965106.1 -L NW_025965107.1 -L NW_025965108.1 -L NW_025965109.1 -L NW_025965110.1 -L NW_025965111.1 -L NW_025965112.1 -L NW_025965113.1 -L NW_025965114.1 -L NW_025965115.1 -L NW_025965116.1 -L NW_025965117.1 -L NW_025965118.1 -L NW_025965119.1 -L NW_025965120.1 -L NW_025965121.1 -L NW_025965122.1 -L NW_025965123.1 -L NW_025965124.1 -L NW_025965125.1 -L NW_025965126.1 -L NW_025965127.1 -L NW_025965128.1 -L NW_025965129.1 -L NW_025965130.1 -L NW_025965131.1 -L NW_025965132.1 -L NW_025965133.1 -L NW_025965134.1 -L NW_025965135.1 -L NW_025965136.1 -L NW_025965137.1 -L NW_025965138.1 -L NW_025965139.1 -L NW_025965140.1 -L NW_025965141.1 -L NW_025965142.1 -L NW_025965143.1 -L NW_025965144.1 -L NW_025965145.1 -L NW_025965146.1 -L NW_025965147.1 -L NW_025965148.1 -L NW_025965149.1 -L NW_025965150.1 -L NW_025965151.1 -L NW_025965152.1 -L NW_025965153.1 -L NW_025965154.1 -L NW_025965155.1 -L NW_025965156.1 -L NW_025965157.1 -L NW_025965158.1 -L NW_025965159.1 -L NW_025965160.1 -L NW_025965161.1 -L NW_025965162.1 -L NW_025965163.1 -L NW_025965164.1 -L NW_025965165.1 -L NW_025965166.1 -L NW_025965167.1 -L NW_025965168.1 -L NW_025965169.1 -L NW_025965170.1 -L NW_025965171.1 -L NW_025965172.1 -L NW_025965173.1 -L NW_025965174.1 -L NW_025965175.1 -L NW_025965176.1 -L NW_025965177.1 -L NW_025965178.1 -L NW_025965179.1 -L NW_025965180.1 -L NW_025965181.1 -L NW_025965182.1 -L NW_025965183.1 -L NW_025965184.1 -L NW_025965185.1 -L NW_025965186.1 -L NW_025965187.1 -L NW_025965188.1 -L NW_025965189.1 -L NW_025965190.1 -L NW_025965191.1 -L NW_025965192.1 -L NW_025965193.1 -L NW_025965194.1 -L NW_025965195.1 -L NW_025965196.1 -L NW_025965197.1 -L NW_025965198.1 -L NW_025965199.1 -L NW_025965200.1 -L NW_025965201.1 -L NW_025965202.1 -L NW_025965203.1 -L NW_025965204.1 -L NW_025965205.1 -L NW_025965206.1 -L NW_025965207.1 -L NW_025965208.1 -L NW_025965209.1 -L NW_025965210.1 -L NW_025965211.1 -L NW_025965212.1 -L NW_025965213.1 -L NW_025965214.1 -L NW_025965215.1 -L NW_025965216.1 -L NW_025965217.1 -L NW_025965218.1 -L NW_025965219.1 -L NW_025965220.1 -L NW_025965221.1 -L NW_025965222.1 -L NW_025965223.1 -L NW_025965224.1 -L NW_025965225.1 -L NW_025965226.1 -L NW_025965227.1 -L NW_025965228.1 -L NW_025965229.1 -L NW_025965230.1 -L NW_025965231.1 -L NW_025965232.1 -L NW_025965233.1 -L NW_025965234.1 -L NW_025965235.1 -L NW_025965236.1 -L NW_025965237.1 -L NW_025965238.1 -L NW_025965239.1 -L NW_025965240.1 -L NW_025965241.1 -L NW_025965242.1 -L NW_025965243.1 -L NW_025965244.1 -L NW_025965245.1 -L NW_025965246.1 -L NW_025965247.1 -L NW_025965248.1 -L NW_025965249.1 -L NW_025965250.1 -L NW_025965251.1 -L NW_025965252.1 -L NW_025965253.1 -L NW_025965254.1 -L NW_025965255.1 -L NW_025965256.1 -L NW_025965257.1 -L NW_025965258.1 -L NW_025965259.1 -L NW_025965260.1 -L NW_025965261.1 -L NW_025965262.1 -L NW_025965263.1 -L NW_025965264.1 -L NW_025965265.1 -L NW_025965266.1 -L NW_025965267.1 -L NW_025965268.1 -L NW_025965269.1 -L NW_025965270.1 -L NW_025965271.1 -L NW_025965272.1 -L NW_025965273.1 -L NW_025965274.1 -L NW_025965275.1 -L NW_025965276.1 -L NW_025965277.1 -L NW_025965278.1 -L NW_025965279.1 -L NW_025965280.1 -L NW_025965281.1 -L NW_025965282.1 -L NW_025965283.1 -L NW_025965284.1 -L NW_025965285.1 -L NW_025965286.1 -L NW_025965287.1 -L NW_025965288.1 -L NW_025965289.1 -L NW_025965290.1 -L NW_025965291.1 -L NW_025965292.1 -L NW_025965293.1 -L NW_025965294.1 -L NW_025965295.1 -L NW_025965296.1 -L NW_025965297.1 -L NW_025965298.1 -L NW_025965299.1 -L NW_025965300.1 -L NW_025965301.1 -L NW_025965302.1 -L NW_025965303.1 -L NW_025965304.1 -L NW_025965305.1 -L NW_025965306.1 -L NW_025965307.1 -L NW_025965308.1 -L NW_025965309.1 -L NW_025965310.1 -L NW_025965311.1 -L NW_025965312.1 -L NW_025965313.1 -L NW_025965314.1 -L NW_025965315.1 -L NW_025965316.1 -L NW_025965317.1 -L NW_025965318.1 -L NW_025965319.1 -L NW_025965320.1 -L NW_025965321.1 -L NW_025965322.1 -L NW_025965323.1 -L NW_025965324.1 -L NW_025965325.1 -L NW_025965326.1 -L NW_025965327.1 -L NW_025965328.1 -L NW_025965329.1 -L NW_025965330.1 -L NW_025965331.1 -L NW_025965332.1 -L NW_025965333.1 -L NW_025965334.1 -L NW_025965335.1 -L NW_025965336.1 -L NW_025965337.1 -L NW_025965338.1 -L NW_025965339.1 -L NW_025965340.1 -L NW_025965341.1 -L NW_025965342.1 -L NW_025965343.1 -L NW_025965344.1 -L NW_025965345.1 -L NW_025965346.1 -L NW_025965347.1 -L NW_025965348.1 -L NW_025965349.1 -L NW_025965350.1 -L NW_025965351.1 -L NW_025965352.1 -L NW_025965353.1 -L NW_025965354.1 -L NW_025965355.1 -L NW_025965356.1 -L NW_025965357.1 -L NW_025965358.1 -L NW_025965359.1 -L NW_025965360.1 -L NW_025965361.1 -L NW_025965362.1 -L NW_025965363.1 -L NW_025965364.1 -L NW_025965365.1 -L NW_025965366.1 -L NW_025965367.1 -L NW_025965368.1 -L NW_025965369.1 -L NW_025965370.1 -L NW_025965371.1 -L NW_025965372.1 -L NW_025965373.1 -L NW_025965374.1 -L NW_025965375.1 -L NW_025965376.1 -L NW_025965377.1 -L NW_025965378.1 -L NW_025965379.1 -L NW_025965380.1 -L NW_025965381.1 -L NW_025965382.1 -L NW_025965383.1 -L NW_025965384.1 -L NW_025965385.1 -L NW_025965386.1 -L NW_025965387.1 -L NW_025965388.1 -L NW_025965389.1 -L NW_025965390.1 -L NW_025965391.1 -L NW_025965392.1 -L NW_025965393.1 -L NW_025965394.1 -L NW_025965395.1 -L NW_025965396.1 -L NW_025965397.1 -L NW_025965398.1 -L NW_025965399.1 -L NW_025965400.1 -L NW_025965401.1 -L NW_025965402.1 -L NW_025965403.1 -L NW_025965404.1 -L NW_025965405.1 -L NW_025965406.1 -L NW_025965407.1 -L NW_025965408.1 -L NW_025965409.1 -L NW_025965410.1 -L NW_025965411.1 -L NW_025965412.1 -L NW_025965413.1 -L NW_025965414.1 -L NW_025965415.1 -L NW_025965416.1 -L NW_025965417.1 -L NW_025965418.1 -L NW_025965419.1 -L NW_025965420.1 -L NW_025965421.1 -L NW_025965422.1 -L NW_025965423.1 -L NW_025965424.1 -L NW_025965425.1 -L NW_025965426.1 -L NW_025965427.1 -L NW_025965428.1 -L NW_025965429.1 -L NW_025965430.1 -L NW_025965431.1 -L NW_025965432.1 -L NW_025965433.1 -L NW_025965434.1 -L NW_025965435.1 -L NW_025965436.1 -L NW_025965437.1 -L NW_025965438.1 -L NW_025965439.1 -L NW_025965440.1 -L NW_025965441.1 -L NW_025965442.1 -L NW_025965443.1 -L NW_025965444.1 -L NW_025965445.1 -L NW_025965446.1 -L NW_025965447.1 -L NW_025965448.1 -L NW_025965449.1 -L NW_025965450.1 -L NW_025965451.1 -L NW_025965452.1 -L NW_025965453.1 -L NW_025965454.1 -L NW_025965455.1 -L NW_025965456.1 -L NW_025965457.1 -L NW_025965458.1 -L NW_025965459.1 -L NW_025965460.1 -L NW_025965461.1 -L NW_025965462.1 -L NW_025965463.1 -L NW_025965464.1 -L NW_025965465.1 -L NW_025965466.1 -L NW_025965467.1 -L NW_025965468.1 -L NW_025965469.1 -L NW_025965470.1 -L NW_025965471.1 -L NW_025965472.1 -L NW_025965473.1 -L NW_025965474.1 -L NW_025965475.1 -L NW_025965476.1 -L NW_025965477.1 -L NW_025965478.1 -L NW_025965479.1 -L NW_025965480.1 -L NW_025965481.1 -L NW_025965482.1 -L NW_025965483.1 -L NW_025965484.1 -L NW_025965485.1 -L NW_025965486.1 -L NW_025965487.1 -L NW_025965488.1 -L NW_025965489.1 -L NW_025965490.1 -L NW_025965491.1 -L NW_025965492.1 -L NW_025965493.1 -L NW_025965494.1 -L NW_025965495.1 -L NW_025965496.1 -L NW_025965497.1 -L NW_025965498.1 -L NW_025965499.1 -L NW_025965500.1 -L NW_025965501.1 -L NW_025965502.1 -L NW_025965503.1 -L NW_025965504.1 -L NW_025965505.1 -L NW_025965506.1 -L NW_025965507.1 -L NW_025965508.1 -L NW_025965509.1 -L NW_025965510.1 -L NW_025965511.1 -L NW_025965512.1 -L NW_025965513.1 -L NW_025965514.1 -L NW_025965515.1 -L NW_025965516.1 -L NW_025965517.1 -L NW_025965518.1 -L NW_025965519.1 -L NW_025965520.1 -L NW_025965521.1 -L NW_025965522.1 -L NW_025965523.1 -L NW_025965524.1 -L NW_025965525.1 -L NW_025965526.1 -L NW_025965527.1 -L NW_025965528.1 -L NW_025965529.1 -L NW_025965530.1 -L NW_025965531.1 -L NW_025965532.1 -L NW_025965533.1 -L NW_025965534.1 -L NW_025965535.1 -L NW_025965536.1 -L NW_025965537.1 -L NW_025965538.1 -L NW_025965539.1 -L NW_025965540.1 -L NW_025965541.1 -L NW_025965542.1 -L NW_025965543.1 -L NW_025965544.1 -L NW_025965545.1 -L NW_025965546.1 -L NW_025965547.1 -L NW_025965548.1 -L NW_025965549.1 -L NW_025965550.1 -L NW_025965551.1 -L NW_025965552.1 -L NW_025965553.1 -L NW_025965554.1 -L NW_025965555.1 -L NW_025965556.1 -L NW_025965557.1 -L NW_025965558.1 -L NW_025965559.1 -L NW_025965560.1 -L NW_025965561.1 -L NW_025965562.1 -L NW_025965563.1 -L NW_025965564.1 -L NW_025965565.1 -L NW_025965566.1 -L NW_025965567.1 -L NW_025965568.1 -L NW_025965569.1 -L NW_025965570.1 -L NW_025965571.1 -L NW_025965572.1 -L NW_025965573.1 -L NW_025965574.1 -L NW_025965575.1 -L NW_025965576.1 -L NW_025965577.1 -L NW_025965578.1 -L NW_025965579.1 -L NW_025965580.1 -L NW_025965581.1 -L NW_025965582.1 -L NW_025965583.1 -L NW_025965584.1 -L NW_025965585.1 -L NW_025965586.1 -L NW_025965587.1 -L NW_025965588.1 -L NW_025965589.1 -L NW_025965590.1 -L NW_025965591.1 -L NW_025965592.1 -L NW_025965593.1 -L NW_025965594.1 -L NW_025965595.1 -L NW_025965596.1 -L NW_025965597.1 -L NW_025965598.1 -L NW_025965599.1 -L NW_025965600.1 -L NW_025965601.1 -L NW_025965602.1 -L NW_025965603.1 -L NW_025965604.1 -L NW_025965605.1 -L NW_025965606.1 -L NW_025965607.1 -L NW_025965608.1 -L NW_025965609.1 -L NW_025965610.1 -L NW_025965611.1 -L NW_025965612.1 -L NW_025965613.1 -L NW_025965614.1 -L NW_025965615.1 -L NW_025965616.1 -L NW_025965617.1 -L NW_025965618.1 -L NW_025965619.1 -L NW_025965620.1 -L NW_025965621.1 -L NW_025965622.1 -L NW_025965623.1 -L NW_025965624.1 -L NW_025965625.1 -L NW_025965626.1 -L NW_025965627.1 -L NW_025965628.1 -L NW_025965629.1 -L NW_025965630.1 -L NW_025965631.1 -L NW_025965632.1 -L NW_025965633.1 -L NW_025965634.1 -L NW_025965635.1 -L NW_025965636.1 -L NW_025965637.1 -L NW_025965638.1
+
+## for GenotypeGVCFs command look for the scratch directory on you uppmax account. Usually it gives you an error. Follow the code below of the error persist.
+cp -r /proj/uppstore2017199/b2016119_nobackup/ayushi/9.2_GATK_variant_calling/DBImport/my_database  $SNIC_TMP
+
+gatk GenotypeGVCFs \
+                        -R GCF_902806735.1_Bank_vole1_10x_genomic.fna \
+                        -V gendb://my_database \
+                        --output $out_dir/DBImport/genotypeOutput.vcf.gz
 ```
 
 ### Statistical analysis
@@ -1356,6 +1475,113 @@ bcftools view -H  freebayes3.vs.cdsexon.vcf.gz | wc -l
 #
 ```
 
+FILTERING THE EXPRESSED GENES
+
+using featureCounts
+
+```bash
+#!/bin/bash -l
+#SBATCH -A naiss2023-22-97
+#SBATCH -p node
+#SBATCH -n 5
+#SBATCH -t 10-00:00:00
+#SBATCH -J expressedGenesForSensitivityAnlaysis.job
+#SBATCH -o expressedGenesForSensitivityAnlaysis.out
+#SBATCH -e expressedGenesForSensitivityAnlaysis.err
+#SBATCH --mail-user=ayushipathakofficial@gmail.com
+#SBATCH --mail-type=ALL
+
+module load bioinfo-tools
+module load subread
+module load star/2.7.9a
+
+featureCounts -p -T 4 -a /proj/uppstore2017199/b2016119_nobackup/ayushi/resources/genomic.gtf -t exon -F GTF -g gene_id -o /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/featureCountsAnalysis
+```
+
+Filters
+
+```jsx
+grep -v '#' featureCountsAnalysis | grep -v '^Geneid' | awk '{for(i=6;i<=24;i++) if($i < 4) $i=0}1' featureCountsAnalysis > featureCountsAnalysis.filter1
+```
+
+```jsx
+awk '{count=0; for(i=6; i<=24; i++) if($i == 0) count++; if(count < 13) print}' featureCountsAnalysis.filter1 > featureCountsAnalysis.filter2
+```
+
+```bash
+/proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/featureCountsAnalysis.final
+/proj/uppstore2017199/b2016119_nobackup/ayushi/genomic.gff
+
+```
+
+```bash
+# Filter the gtf file to contain only the **exons** from these genes. This will give you an **annotation file for the exons from expressed genes.**
+awk '$3 ~ /exon/' genomic.gtf > exon.gtf
+# Convert the gtf file to bed file
+awk -F'\t' 'BEGIN{OFS="\t"} !/^#/ {print $1, $4 - 1, $5, $9, ".", $7}' exon.gtf > exon.bed
+# Filtering the bed file to contain only expressed genes
+
+#bcftools view -R exon.bed /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/featureCountsAnalysis.final | bcftools sort >  /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/expressed_annotation.txt
+```
+
+```bash
+
+grep -v '^#' featureCountsAnalysis.filter2 | grep -v '^geneid' | cut -f 1 > listExpressedGenes.txt
+cat listExpressedGenes.txt | tr '\t' ';' > listExpressedGenes2.txt
+cat listExpressedGenes2.txt | tr ' ' ';' > listExpressedGenes3.txt
+cut -d ';' -f 1 listExpressedGenes3.txt> listExpressedGenes4.txt
+###
+LOC125387327
+LOC125398152
+Elmod3
+Capg
+Sh2d6
+LOC125405528
+LOC125406016
+Mat2a
+Ggcx
+LOC125408558
+Vamp8
+Vamp5
+Rnf181
+Tmem150a
+CUNH2orf68
+Usp39###
+```
+
+```bash
+#!/bin/bash -l
+#SBATCH -A naiss2023-22-97
+#SBATCH -p node
+#SBATCH -n 5
+#SBATCH -t 12:00:00
+#SBATCH -J expressed.job
+#SBATCH -o expressed.out
+#SBATCH -e expressed.err
+#SBATCH --mail-user=ayushipathakofficial@gmail.com
+#SBATCH --mail-type=ALL
+
+#for value in $(cat /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/expressed_genes.txt); do grep -E "gene_id \"$value\"" /proj/uppstore2017199/b2016119_nobackup/ayushi/exon.gtf; done > /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/expressed.gtf
+
+while read -r value; do sed -n "/gene_id \"$value\"/p" /proj/uppstore2017199/b2016119_nobackup/ayushi/exon.gtf; done < /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/expressed_genes.txt > /proj/uppstore2017199/b2016119_nobackup/ayushi/20_expressedGenesForSensitivityAnlaysis/expressed.gtf
+```
+
+```bash
+awk -F'\t' 'BEGIN{OFS="\t"} !/^#/ {print $1, $4 - 1, $5, $9, ".", $7}' expressed.gtf > expressed.bed
+awk -F'\t' 'BEGIN{OFS="\t"} !/^#/ {print $1, $4 - 1, $5, $9, ".", $7}' expressed6.gtf > expressed6.bed
+
+module load bioinfo-tools bcftools
+cd 20_expressedGenesForSensitivityAnlaysis
+bcftools view -R expressed.bed ../freebayes.bv_chromium.filt1.decomposed.filt.snps.rep.all.vcf.gz | bcftools sort | bgzip -c >  expressed.vcf.gz
+bcftools view -R expressed6.bed ../freebayes.bv_chromium.filt1.decomposed.filt.snps.rep.all.vcf.gz | bcftools sort | bgzip -c >  expressed6.vcf.gz
+
+bcftools view -H expressed.vcf.gz | cut -f 1-2 |tr '\t' ':' > expressedChrPos.txt
+bcftools view -H expressed6.vcf.gz | cut -f 1-2 | tr '\t' ':' > expressedChrPos6.txt
+
+cd Downloads
+scp ayuship@rackham.uppmax.uu.se:/proj/uppstore2017199/b2016119_nobackup/ayushi/20*/expressedChrPos.txt .
+```
+
 VISUALISATION
 
 ```bash
@@ -1386,7 +1612,7 @@ library(grid)
 library(futile.logger)
 library(VennDiagram)
 
-#setwd("C:/Users/Ayushi Pathak/Downloads")
+setwd("C:/Users/Ayushi Pathak/Downloads")
 
 Gfile1<-'C:/Users/Ayushi Pathak/Downloads/GATK_filteredPass1chrpos.txt'
 Gfile2<-'C:/Users/Ayushi Pathak/Downloads/GATK_filteredPass2chrpos.txt'
@@ -1397,6 +1623,7 @@ Ffile3<-'C:/Users/Ayushi Pathak/Downloads/F_filtered3chrpos.txt'
 CDS<-'C:/Users/Ayushi Pathak/Downloads/DNA_filtered1chrpos.txt'
 CDSExon<-'C:/Users/Ayushi Pathak/Downloads/cdsExonChrPos.txt'
 GENOME<-'C:/Users/Ayushi Pathak/Downloads/allGenomeChrPos.txt'
+expressed<-'C:/Users/Ayushi Pathak/Downloads/expressedChrPos.txt'
 
 G1<-readLines(Gfile1, warn = FALSE, encoding = "UTF-8")
 G2<-readLines(Gfile2, warn = FALSE, encoding = "UTF-8")
@@ -1407,8 +1634,9 @@ F3<-readLines(Ffile3, warn = FALSE, encoding = "UTF-8")
 DNA1<-readLines(CDS, warn = FALSE, encoding = "UTF-8")
 DNA2<-readLines(CDSExon, warn = FALSE, encoding = "UTF-8")
 DNA3<-readLines(GENOME, warn = FALSE, encoding = "UTF-8")
+expressed<-readLines(expressed, warn = FALSE, encoding = "UTF-8")
 
-# Create a list of sets for GCS region
+# Create a list of sets for CDS region
 chromosome_sets1<-list(G1,F1,DNA1)
 chromosome_sets2<-list(G2,F2,DNA1)
 chromosome_sets3<-list(G3,F3,DNA1)
@@ -1418,7 +1646,7 @@ diagram1 <- venn.diagram(chromosome_sets1, category.names = c("GatkRun1","Freeba
 diagram2<-venn.diagram(chromosome_sets2, category.names = c("GATKRun2","FreebayesRun2","DNA"), filename = "2cds.png",  col="Black",fill=c("#1F4E79", "#29ADB2", "#C5E898"))                        
 diagram3<-venn.diagram(chromosome_sets3, category.names = c("GATKRun3","FreebayesRun3","DNA"), filename = "3cds.png",  col="Black",fill=c("#1F4E79", "#29ADB2", "#C5E898"))                        
 
-# Create a list of sets for GCSExon region
+# Create a list of sets for CDSExon region
 chromosome_sets1.1<-list(G1,F1,DNA2)
 chromosome_sets2.1<-list(G2,F2,DNA2)
 chromosome_sets3.1<-list(G3,F3,DNA2)
@@ -1430,6 +1658,9 @@ diagram3.1<-venn.diagram(chromosome_sets3.1, category.names = c("GATKRun3","Free
 diagram1.12<-venn.diagram(list(F1,DNA2), category.names = c("F1","DNA+Exon"), filename = "F1cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
 diagram1.22<-venn.diagram(list(F2,DNA2), category.names = c("F1","DNA+Exon"), filename = "F2cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
 diagram1.32<-venn.diagram(list(F3,DNA2), category.names = c("F3","DNA+Exon"), filename = "F3cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
+diagram1.14<-venn.diagram(list(G1,DNA2), category.names = c("G1","DNA+Exon"), filename = "G1cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
+diagram1.25<-venn.diagram(list(G2,DNA2), category.names = c("G1","DNA+Exon"), filename = "G2cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
+diagram1.36<-venn.diagram(list(G3,DNA2), category.names = c("G3","DNA+Exon"), filename = "G3cdsexon.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
 
 # Create a list of sets for Genome
 chromosome_sets1.2<-list(G1,F1,DNA3)
@@ -1445,10 +1676,30 @@ diagram2.22<-venn.diagram(list(F2,DNA3), category.names = c("F2","WGS"), filenam
 diagram3.23<-venn.diagram(list(F3,DNA3), category.names = c("F3","WGS"), filename = "F3genome.png",  col="Black",fill=c("#29ADB2", "#C5E898"))     
 diagram1.24<-venn.diagram(list(G1,DNA3), category.names = c("G1","WGS"), filename = "G1genome.png",  col="Black",fill=c("#29ADB2", "#C5E898"))
 diagram2.25<-venn.diagram(list(G2,DNA3), category.names = c("G2","WGS"), filename = "G2genome.png",  col="Black",fill=c("#29ADB2", "#C5E898"))                        
-diagram3.26<-venn.diagram(list(G3,DNA3), category.names = c("G3","WGS"), filename = "G3genome.png",  col="Black",fill=c("#29ADB2", "#C5E898"))
+diagram3.26<-venn.diagram(list(G3,DNA3), category.names = c("G3","WGS"), filename = "G3genome.png",  col="Black",fill=c("#29ADB2", "#C5E898"))                        
+
+#####################################
+
+# Create a list of sets for expressed region
+chromosome_sets1<-list(G1,F1,expressed)
+chromosome_sets2<-list(G2,F2,expressed)
+chromosome_sets3<-list(G3,F3,expressed)
+
+# Create Venn diagram
+diagram1 <- venn.diagram(chromosome_sets1, category.names = c("GatkRun1","FreebayesRun1","ExpressedGenes"), filename = "1ex6.png",  col="Black",fill=c("#1F4E79", "#29ADB2", "#C5E898"))
+diagram2<-venn.diagram(chromosome_sets2, category.names = c("GATKRun2","FreebayesRun2","ExpressedGenes"), filename = "2ex6.png",  col="Black",fill=c("#1F4E79", "#29ADB2", "#C5E898"))                        
+diagram3<-venn.diagram(chromosome_sets3, category.names = c("GATKRun3","FreebayesRun3","ExpressedGenes"), filename = "3ex6.png",  col="Black",fill=c("#1F4E79", "#29ADB2", "#C5E898"))                        
+
+chromosome_sets1.1<-list(F1,expressed)
+chromosome_sets2.1<-list(F2,expressed)
+chromosome_sets3.1<-list(F3,expressed)
+
+diagram1<-venn.diagram(chromosome_sets1.1, category.names = c("Freebayes1","ExpressedGenes"), filename = "1ex6.1.png",  col="Black",fill=c("#1F4E79", "#29ADB2" ))
+diagram2<-venn.diagram(chromosome_sets2.1, category.names = c("Freebayes2","ExpressedGenes"), filename = "2ex6.1.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))                        
+diagram3<-venn.diagram(chromosome_sets3.1, category.names = c("Freebayes3","ExpressedGenes"), filename = "3ex6.1.png",  col="Black",fill=c("#1F4E79", "#29ADB2"))
 ```
 
-## Specificity, Sensitivity and Precision Analysis
+## Specificity and Precision Analysis
 
 ```bash
 # Install and load ggplot2 if not already installed
@@ -1460,25 +1711,12 @@ library(ggplot2)
 # Example counts of true positives, false positives, true negatives, and false negatives for six runs
 runs <- c("GATK1", "GATK2", "GATK3", "Freebayes1", "Freebayes2", "Freebayes3")
 
-TP <- c(83245,
-        50236,
-        16069,
-        111281,
-        101398,
-        75048)
-FP <- c(635039,
-        421622,
-        134774,
-        111476,
-        74865,
-        29475)
-TN <- c(150, 160, 155, 145, 162, 158)
-FN <- c(431091,
-        464100,
-        498267,
-        403055,
-        412938,
-        439288)
+# For Expressed Genes
+TP <- c(82965,50032,16035,111262,101398,75048)
+
+FP <- c(635319,421806,134808,111495,74865,29475)
+
+FN <- c(339592,372525,406522,311295,321159,347509)
 
 # Calculate sensitivity and precision for each run
 sensitivity <- TP / (TP + FN)
